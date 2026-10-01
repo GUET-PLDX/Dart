@@ -277,6 +277,7 @@ class Dart : public LibXR::Application {
     launcher_ref.StartWaiting();
     cmd_suber.StartWaiting();
     fire_notify_suber.StartWaiting();
+    auto last_wakeup_time = LibXR::Timebase::GetMilliseconds();
     while (1) {
       if (cmd_suber.Available()) {
         dart->cmd_data_ = cmd_suber.GetData();
@@ -367,7 +368,7 @@ class Dart : public LibXR::Application {
       dart->ControlFric();
       dart->ControlPushMotor();
 
-      LibXR::Thread::Sleep(2);
+      LibXR::Thread::SleepUntil(last_wakeup_time, 2);
     }
   }
 
