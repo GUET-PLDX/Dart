@@ -200,6 +200,7 @@ class Dart : public LibXR::Application {
     ref_data_.dc.opening_status = 3;
 
     last_online_time_ = LibXR::Timebase::GetMicroseconds();
+    last_online_time_launcher_ = last_online_time_;
     thread_.Create(this, ThreadFunction, "dartThread", task_stack_depth,
                    LibXR::Thread::Priority::MEDIUM);
 
@@ -504,7 +505,7 @@ class Dart : public LibXR::Application {
 
   // === Launcher Functions ===
   void UpdateFric() {
-    auto now = LibXR::Timebase::GetMilliseconds();
+    auto now = LibXR::Timebase::GetMicroseconds();
     dt_launcher_ = (now - last_online_time_launcher_).ToSecondf();
     last_online_time_launcher_ = now;
 
@@ -899,7 +900,7 @@ class Dart : public LibXR::Application {
   // === Launcher Members ===
   CMD::ChassisCMD cmd_data_{};
   float dt_launcher_ = 0.0f;
-  LibXR::MillisecondTimestamp last_online_time_launcher_ = 0;
+  LibXR::MicrosecondTimestamp last_online_time_launcher_ = 0;
   LibXR::GPIO* user_key_;
 
   RMMotor* motor_fric_front_left_;
