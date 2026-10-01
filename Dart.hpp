@@ -581,7 +581,7 @@ class Dart : public LibXR::Application {
       }
     } else if (launch_mode_ == LaunchMode::FULL_FIRE) {
       // FULL_FIRE模式下直接根据fire_cmd控制
-      if (cmd_data_.x > 0.5f) {
+      if (cmd_data_.operator_input.x > 0.5f) {
         fric_mode_ = DartLauncherMode::FRIC_START;
       }
     }
@@ -855,7 +855,7 @@ class Dart : public LibXR::Application {
 
   void DR16CONTROL() {
     if ((mode_ == DartMode::YAW_COMMON) || (mode_ == DartMode::YAW_SCAN)) {
-      if (cmd_data_.z > 0.7f) {
+      if (cmd_data_.operator_input.z > 0.7f) {
         ref_data_.dc.opening_status = static_cast<uint8_t>(OPENING_STATUS::ON);
         fire_cmd_ = true;
         dart_gimbal_cmd_.yaw = 0.0f;
@@ -865,7 +865,7 @@ class Dart : public LibXR::Application {
     }
     if (mode_ == DartMode::YAW_COMMON) {
       yaw_motor_state_ = YawMotorState::NORMAL_CONTROL;
-      dart_gimbal_cmd_.yaw = cmd_data_.x;
+      dart_gimbal_cmd_.yaw = cmd_data_.operator_input.x;
     }
   }
 
