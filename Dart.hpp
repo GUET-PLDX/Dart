@@ -498,7 +498,11 @@ class Dart : public LibXR::Application {
    */
   void Solve(float& yaw_output, float target_yaw_angle, float dt_) {
     float yaw_error = target_yaw_angle - yaw_motor_angle_;
-    float target_yaw_speed = pid_yaw_angle_.Calculate(yaw_error, 0.0f, dt_);
+    // 误差已作为设定值传入（反馈为 0），D 项改用实测 yaw 角速度（输出轴）
+    const float YAW_ANGLE_RATE =
+        motor_yaw_feedback_.omega / YAW_MOTOR_GEAR_RATIO;
+    float target_yaw_speed =
+        pid_yaw_angle_.Calculate(yaw_error, 0.0f, YAW_ANGLE_RATE, dt_);
     float fb_yaw = pid_yaw_speed_.Calculate(target_yaw_speed,
                                             motor_yaw_feedback_.velocity, dt_);
     yaw_output = fb_yaw;
