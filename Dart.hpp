@@ -91,9 +91,11 @@ depends:
 // clang-format on
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 #include "CMD.hpp"
+#include "DartTarget.hpp"
 #include "RMMotor.hpp"
 #include "Referee.hpp"
 #include "app_framework.hpp"
@@ -286,11 +288,10 @@ class Dart : public LibXR::Application {
       if (dart_gimbal_suber.Available()) {
         float new_yaw = dart_gimbal_suber.GetData().yaw;
         // 检查是否是不同的数据
-        if (std::abs(new_yaw - dart->dart_gimbal_cmd_.yaw) > 1e-6f &&
-            new_yaw != 0.0f) {
-          dart->dart_gimbal_cmd_.yaw = new_yaw;
+        if (DartDetail::AcceptYaw(new_yaw, dart->dart_gimbal_cmd_.yaw,
+                                  dart->last_gimbal_data_time_,
+                                  LibXR::Timebase::GetMilliseconds())) {
           dart->yaw_motor_state_ = YawMotorState::NORMAL_CONTROL;
-          dart->last_gimbal_data_time_ = LibXR::Timebase::GetMilliseconds();
         }
         // dart->cnt++;
 
@@ -360,7 +361,8 @@ class Dart : public LibXR::Application {
       dart->UpdateFric();
       dart->UpdatePushMotor();
       dart->DR16CONTROL();
-      if (dart->mode_ == DartMode::GAME) {
+      if (dart->mode_ == DartMode::GAME && dart->fric_motors_online_ &&
+          dart->push_motor_online_) {
         dart->DetectLaunch();
       }
       dart->ControlYaw();
@@ -382,7 +384,10 @@ class Dart : public LibXR::Application {
 
     const float LAST_YAW_MOTOR_ANGLE =
         LibXR::CycleValue<float>(motor_yaw_feedback_.abs_angle);
-    motor_yaw_->Update();
+    yaw_motor_online_ = motor_yaw_->Update() == LibXR::ErrorCode::OK;
+    if (!yaw_motor_online_) {
+      return;
+    }
     motor_yaw_feedback_ = motor_yaw_->GetFeedback();
     const float DELTA_YAW_MOTOR_ANGLE =
         LibXR::CycleValue<float>(motor_yaw_feedback_.abs_angle) -
@@ -391,11 +396,20 @@ class Dart : public LibXR::Application {
   }
 
   void UpdatePitch() {
-    motor_pitch_->Update();
+    pitch_motor_online_ = motor_pitch_->Update() == LibXR::ErrorCode::OK;
+    if (!pitch_motor_online_) {
+      return;
+    }
     motor_pitch_feedback_ = motor_pitch_->GetFeedback();
   }
 
   void ControlYaw() {
+    if (!yaw_motor_online_) {
+      pid_yaw_angle_.Reset();
+      pid_yaw_speed_.Reset();
+      motor_yaw_->Relax();
+      return;
+    }
     if (current_mode_ == DartGimbalEvent::SET_MODE_RELAX) {
       motor_yaw_->Relax();
       return;
@@ -476,15 +490,14 @@ class Dart : public LibXR::Application {
     auto yaw_motor_cmd = Motor::MotorCmd(
         {.mode = Motor::ControlMode::MODE_CURRENT, .velocity = out_yaw});
 
-    auto motor_control = [&](Motor* motor, const Motor::Feedback& fb,
-                             const Motor::MotorCmd& cmd) {
-      motor->Control(cmd);
-    };
-
-    motor_control(motor_yaw_, motor_yaw_feedback_, yaw_motor_cmd);
+    motor_yaw_->Control(yaw_motor_cmd);
   }
 
   void ControlPitch() {
+    if (!pitch_motor_online_) {
+      motor_pitch_->Relax();
+      return;
+    }
     motor_pitch_->Control(Motor::MotorCmd(
         {.mode = Motor::ControlMode::MODE_CURRENT, .velocity = 0.0f}));
   }
@@ -514,10 +527,20 @@ class Dart : public LibXR::Application {
     dt_launcher_ = (now - last_online_time_launcher_).ToSecondf();
     last_online_time_launcher_ = now;
 
-    motor_fric_front_right_->Update();
-    motor_fric_front_left_->Update();
-    motor_fric_back_left_->Update();
-    motor_fric_back_right_->Update();
+    const bool FRONT_RIGHT_ONLINE =
+        motor_fric_front_right_->Update() == LibXR::ErrorCode::OK;
+    const bool FRONT_LEFT_ONLINE =
+        motor_fric_front_left_->Update() == LibXR::ErrorCode::OK;
+    const bool BACK_LEFT_ONLINE =
+        motor_fric_back_left_->Update() == LibXR::ErrorCode::OK;
+    const bool BACK_RIGHT_ONLINE =
+        motor_fric_back_right_->Update() == LibXR::ErrorCode::OK;
+    fric_motors_online_ = FRONT_RIGHT_ONLINE && FRONT_LEFT_ONLINE &&
+                          BACK_LEFT_ONLINE && BACK_RIGHT_ONLINE;
+    if (!fric_motors_online_) {
+      fric_ready_ = false;
+      return;
+    }
 
     param_motor_fric_front_left_ = motor_fric_front_left_->GetFeedback();
     param_motor_fric_front_right_ = motor_fric_front_right_->GetFeedback();
@@ -528,7 +551,10 @@ class Dart : public LibXR::Application {
   void UpdatePushMotor() {
     const float LAST_PUSH_MOTOR_ANGLE =
         LibXR::CycleValue<float>(param_push_motor_.abs_angle);
-    push_motor_->Update();
+    push_motor_online_ = push_motor_->Update() == LibXR::ErrorCode::OK;
+    if (!push_motor_online_) {
+      return;
+    }
     param_push_motor_ = push_motor_->GetFeedback();
     const float DELTA_PUSH_MOTOR_ANGLE =
         LibXR::CycleValue<float>(param_push_motor_.abs_angle) -
@@ -569,6 +595,16 @@ class Dart : public LibXR::Application {
     launcher_topic_.Publish(marked_launch_);
   }
   void ControlFric() {
+    if (!fric_motors_online_) {
+      for (auto& pid : fric_speed_pid_) {
+        pid.Reset();
+      }
+      motor_fric_front_left_->Relax();
+      motor_fric_front_right_->Relax();
+      motor_fric_back_left_->Relax();
+      motor_fric_back_right_->Relax();
+      return;
+    }
     // 只在推杆电机复位完成时停止摩擦轮（在ControlPushMotor中处理）
     if (launch_mode_ == LaunchMode::SINGLE_SHOT) {
       if (ref_data_.dc.opening_status ==
@@ -640,6 +676,12 @@ class Dart : public LibXR::Application {
   }
 
   void ControlPushMotor() {
+    if (!push_motor_online_ || !fric_motors_online_) {
+      push_motor_angle_pid_.Reset();
+      push_motor_speed_pid_.Reset();
+      push_motor_->Relax();
+      return;
+    }
     if (!push_motor_init_) {
       push_motor_setpoint_angle_ -= LibXR::TWO_PI / 250.0f;
       push_motor_angle_pid_.SetOutLimit(2000.0f);
@@ -884,6 +926,8 @@ class Dart : public LibXR::Application {
 
   Motor::Feedback motor_yaw_feedback_;
   Motor::Feedback motor_pitch_feedback_;
+  bool yaw_motor_online_ = false;
+  bool pitch_motor_online_ = false;
 
   float yaw_motor_angle_ = 0.0f;
   const float YAW_MOTOR_GEAR_RATIO = 19.2032f;
@@ -919,6 +963,8 @@ class Dart : public LibXR::Application {
   Motor::Feedback param_motor_fric_back_left_;
   Motor::Feedback param_motor_fric_back_right_;
   Motor::Feedback param_push_motor_;
+  bool fric_motors_online_ = false;
+  bool push_motor_online_ = false;
 
   Motor::MotorCmd cmd_fric_front_left_ =
       Motor::MotorCmd{.mode = Motor::ControlMode::MODE_CURRENT,
@@ -976,8 +1022,7 @@ class Dart : public LibXR::Application {
 
   DartLauncherMode fric_mode_ = DartLauncherMode::FRIC_STOP;
   LibXR::Event dart_event_;
-  Referee::LauncherPack ref_data_{
-      .dc = {.opening_status = static_cast<uint8_t>(OPENING_STATUS::DEFAULT)}};
+  Referee::LauncherPack ref_data_{};
   uint32_t delay_time_launcher_ = 0;
   DartMode mode_ = DartMode::RELAX;
   LibXR::Thread thread_;
