@@ -2,91 +2,11 @@
 
 // clang-format off
 /* === MODULE MANIFEST V2 ===
-module_description: InteSET_MODE_RELAXgrated Dart system combining gimbal and launcher functionality
-constructor_args:
-  -task_stack_depth: 4096
-  -pid_yaw_angle:
-      k: 1.0
-      p: 900.0
-      i: 0.0
-      d: 0.0
-      i_limit: 0.0
-      out_limit: 1.0
-      cycle: false
-  -pid_yaw_speed:
-      k: 1.0
-      p: 0.001
-      i: 0.0
-      d: 0.0
-      i_limit: 0.0
-      out_limit: 1.0
-      cycle: false
-  -motor_yaw: '@&motor_yaw'
-  -motor_pit: '@&motor_pitch'
-  -motor_fric_front_left: '@&motor_fric_front_left'
-  -motor_fric_front_right: '@&motor_fric_front_right'
-  -motor_fric_back_left: '@&motor_fric_back_left'
-  -motor_fric_back_right: '@&motor_fric_back_right'
-  -push_motor: '@&push_motor'
-  -push_motor_gear_ratio: 36.0
-  -fric1_setpoint_speed: 4500.0
-  -fric2_setpoint_speed: 4400.0
-  -fric_speed_pid_0:
-      k: 1.0
-      p: 0.001
-      i: 0.0
-      d: 0.0
-      i_limit: 0.0
-      out_limit: 1.0
-      cycle: false
-  -fric_speed_pid_1:
-      k: 1.0
-      p: 0.001
-      i: 0.0
-      d: 0.0
-      i_limit: 0.0
-      out_limit: 1.0
-      cycle: false
-  -fric_speed_pid_2:
-      k: 1.0
-      p: 0.001
-      i: 0.0
-      d: 0.0
-      i_limit: 0.0
-      out_limit: 1.0
-      cycle: false
-  -fric_speed_pid_3:
-      k: 1.0
-      p: 0.001
-      i: 0.0
-      d: 0.0
-      i_limit: 0.0
-      out_limit: 1.0
-      cycle: false
-  -push_motor_speed_pid:
-      k: 1.0
-      p: 0.0008
-      i: 0.0
-      d: 0.0
-      i_limit: 0.0
-      out_limit: 1.0
-      cycle: false
-  -push_motor_angle_pid:
-      k: 1.0
-      p: 1000.0
-      i: 0.0
-      d: 0.0
-      i_limit: 0.0
-      out_limit: 2000.0
-      cycle: false
-  -cmd:‘&@cmd’
-template_args: []
-required_hardware:
-  - dr16
-  - can
+module_description: InteSET_MODE_RELAXgrated Dart system combining gimbal and launcher
+  functionality
 depends:
-  - qdu-feature/CMD
-  - qdu_feature/RMMotor
+- id: qdu-feature/CMD
+- id: qdu_feature/RMMotor
 === END MANIFEST === */
 // clang-format on
 
@@ -98,10 +18,10 @@ depends:
 #include "DartTarget.hpp"
 #include "RMMotor.hpp"
 #include "Referee.hpp"
-#include "app_framework.hpp"
 #include "cycle_value.hpp"
 #include "event.hpp"
 #include "gpio.hpp"
+#include "libxr.hpp"
 #include "libxr_cb.hpp"
 #include "libxr_def.hpp"
 #include "libxr_time.hpp"
@@ -113,7 +33,7 @@ depends:
 #include "timebase.hpp"
 #include "uart.hpp"
 
-class Dart : public LibXR::Application {
+class Dart {
  public:
   enum class DartMode : uint8_t {
     RELAX = 0,
@@ -166,8 +86,8 @@ class Dart : public LibXR::Application {
     NORMAL_CONTROL  // 正常控制状态：接收上位机指令进行控制
   };
 
-  Dart(LibXR::HardwareContainer& hw, LibXR::ApplicationManager& app,
-       uint32_t task_stack_depth, LibXR::PID<float>::Param pid_yaw_angle,
+  Dart(LibXR::GPIO* user_key, uint32_t task_stack_depth,
+       LibXR::PID<float>::Param pid_yaw_angle,
        LibXR::PID<float>::Param pid_yaw_speed, Motor* motor_yaw,
        Motor* motor_pitch, RMMotor* motor_fric_front_left_,
        RMMotor* motor_fric_front_right_, RMMotor* motor_fric_back_left_,
@@ -183,7 +103,7 @@ class Dart : public LibXR::Application {
         pid_yaw_speed_(pid_yaw_speed),
         motor_yaw_(motor_yaw),
         motor_pitch_(motor_pitch),
-        user_key_(hw.Find<LibXR::GPIO>("USER_KEY")),
+        user_key_(user_key),
         motor_fric_front_left_(motor_fric_front_left_),
         motor_fric_front_right_(motor_fric_front_right_),
         motor_fric_back_left_(motor_fric_back_left_),
@@ -197,8 +117,6 @@ class Dart : public LibXR::Application {
         push_motor_speed_pid_(push_motor_speed_pid_),
         push_motor_angle_pid_(push_motor_angle_pid),
         cmd_(cmd) {
-    UNUSED(hw);
-    UNUSED(app);
     ref_data_.dc.opening_status = 3;
 
     last_online_time_ = LibXR::Timebase::GetMicroseconds();
@@ -374,7 +292,7 @@ class Dart : public LibXR::Application {
     }
   }
 
-  void OnMonitor() override {}
+  void OnMonitor() {}
 
   // === Gimbal Functions ===
   void UpdateYaw() {
@@ -950,7 +868,7 @@ class Dart : public LibXR::Application {
   CMD::ChassisCMD cmd_data_{};
   float dt_launcher_ = 0.0f;
   LibXR::MicrosecondTimestamp last_online_time_launcher_ = 0;
-  LibXR::GPIO* user_key_;
+  [[maybe_unused]] LibXR::GPIO* user_key_;
 
   RMMotor* motor_fric_front_left_;
   RMMotor* motor_fric_front_right_;
